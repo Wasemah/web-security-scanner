@@ -6,6 +6,7 @@ Web Security Scanner - Automated vulnerability scanner for web applications
 import argparse
 import sys
 import time
+import json
 from colorama import Fore, Style, init
 from core.sql_injection import SQLInjectionScanner
 from core.xss_scanner import XSSScanner
@@ -17,11 +18,11 @@ from utils.http_client import HTTPClient
 init(autoreset=True)
 
 class WebSecurityScanner:
-    def __init__(self, target_url, output_file=None):
-        self.target_url = target_url
+    def __init__(self, target_url, output_file=None, verbose=False):
+        self.target_url = target_url.rstrip('/')
         self.output_file = output_file
-        self.http_client = HTTPClient()
-        self.vulnerabilities = []
+        self.verbose = verbose
+        self.http_client = HTTPClient(verbose=verbose)
         self.scan_results = {}
         
         # Initialize scanners
@@ -48,9 +49,16 @@ class WebSecurityScanner:
                 return False
             
             # Run all security scans
+            print(f"\n{Fore.BLUE}[1/4] Scanning for SQL Injection...")
             self.scan_results['sql_injection'] = self.scanners['sql_injection'].scan(self.target_url)
+            
+            print(f"\n{Fore.BLUE}[2/4] Scanning for XSS Vulnerabilities...")
             self.scan_results['xss'] = self.scanners['xss'].scan(self.target_url)
+            
+            print(f"\n{Fore.BLUE}[3/4] Checking Security Headers...")
             self.scan_results['security_headers'] = self.scanners['security_headers'].scan(self.target_url)
+            
+            print(f"\n{Fore.BLUE}[4/4] Checking CSRF Protection...")
             self.scan_results['csrf'] = self.scanners['csrf'].scan(self.target_url)
             
             # Generate report
@@ -66,40 +74,72 @@ class WebSecurityScanner:
         """Generate comprehensive scan report"""
         elapsed_time = time.time() - start_time
         
-        report_generator = ReportGenerator(
-            self.target_url,
-            self.scan_results,
-            elapsed_time
-        )
-        
         # Console report
-        console_report = report_generator.generate_console_report()
-        print(console_report)
+        self.generate_console_report(elapsed_time)
         
         # File report
         if self.output_file:
-            if self.output_file.endswith('.html'):
-                html_report = report_generator.generate_html_report()
-                with open(self.output_file, 'w', encoding='utf-8') as f:
-                    f.write(html_report)
-                print(f"{Fore.GREEN}✅ HTML report saved: {self.output_file}")
-            else:
-                json_report = report_generator.generate_json_report()
-                with open(self.output_file, 'w', encoding='utf-8') as f:
-                    f.write(json_report)
-                print(f"{Fore.GREEN}✅ JSON report saved: {self.output_file}")
+            self.generate_file_report(elapsed_time)
+    
+    def generate_console_report(self, elapsed_time):
+        """Generate console-friendly report"""
+        print(f"\n{Fore.CYAN}📊 SCAN REPORT")
+        print(f"{Fore.CYAN}{'='*50}")
+        print(f"{Fore.WHITE}Target: {Fore.YELLOW}{self.target_url}")
+        print(f"{Fore.WHITE}Scan Time: {Fore.YELLOW}{elapsed_time:.2f} seconds")
+        print(f"{Fore.WHITE}Date: {Fore.YELLOW}{time.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"{Fore.CYAN}{'-'*50}")
+        
+        total_vulnerabilities = 0
+        for scan_type, results in self.scan_results.items():
+            count = len(results)
+            total_vulnerabilities += count
+            
+            status_color = Fore.RED if count > 0 else Fore.GREEN
+            status_icon = "❌" if count > 0 else "✅"
+            
+            scan_name = scan_type.replace('_', ' ').title()
+            print(f"{Fore.WHITE}{scan_name}: {status_color}{count} vulnerabilities {status_icon}")
+        
+        print(f"{Fore.CYAN}{'-'*50}")
+        print(f"{Fore.WHITE}Total Vulnerabilities: {Fore.RED if total_vulnerabilities > 0 else Fore.GREEN}{total_vulnerabilities}")
+        
+        # Detailed findings
+        if total_vulnerabilities > 0:
+            print(f"\n{Fore.RED}🔍 DETAILED FINDINGS:")
+            for scan_type, results in self.scan_results.items():
+                for vuln in results:
+                    param = vuln.get('parameter', vuln.get('header', 'N/A'))
+                    print(f"{Fore.RED}• {vuln['type']}: {param}")
+
+    def generate_file_report(self, elapsed_time):
+        """Generate file report (JSON)"""
+        report = {
+            'scan_metadata': {
+                'target': self.target_url,
+                'scan_date': time.strftime('%Y-%m-%d %H:%M:%S'),
+                'scan_duration': elapsed_time,
+                'scanner_version': '1.0.0'
+            },
+            'results': self.scan_results,
+            'summary': {
+                'total_vulnerabilities': sum(len(results) for results in self.scan_results.values())
+            }
+        }
+        
+        with open(self.output_file, 'w', encoding='utf-8') as f:
+            json.dump(report, f, indent=2)
+        print(f"{Fore.GREEN}✅ JSON report saved: {self.output_file}")
 
 def main():
     parser = argparse.ArgumentParser(description='Web Security Scanner')
     parser.add_argument('target', help='Target URL to scan')
-    parser.add_argument('-o', '--output', help='Output file for report (JSON or HTML)')
-    parser.add_argument('--sql-only', action='store_true', help='Only perform SQL injection scan')
-    parser.add_argument('--xss-only', action='store_true', help='Only perform XSS scan')
-    parser.add_argument('--headers-only', action='store_true', help='Only check security headers')
+    parser.add_argument('-o', '--output', help='Output file for report (JSON)')
+    parser.add_argument('-v', '--verbose', action='store_true', help='Verbose output')
     
     args = parser.parse_args()
     
-    scanner = WebSecurityScanner(args.target, args.output)
+    scanner = WebSecurityScanner(args.target, args.output, args.verbose)
     scanner.scan()
 
 if __name__ == "__main__":
