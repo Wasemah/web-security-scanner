@@ -21,7 +21,7 @@ class WebSecurityScanner:
     def __init__(self):
         self.http_client = HTTPClient()
         self.sql_scanner = SQLInjectionScanner(self.http_client)
-        self.xss_scanner = XSSScanner()
+        self.xss_scanner = XSSScanner(self.http_client)
         self.csrf_detector = CSRFDetector()
         self.headers_scanner = SecurityHeadersScanner()
         self.report_generator = ReportGenerator()
@@ -42,24 +42,21 @@ class WebSecurityScanner:
             return vulnerabilities
         
         # Perform security scans
-        print(f"{Fore.GREEN}🚀 Starting security scans...{Style.RESET_ALL}")
+        print(f"{Fore.GREEN}🚀 Starting comprehensive security scans...{Style.RESET_ALL}")
         
         # SQL Injection Scan
         sql_vulns = self.sql_scanner.scan(url)
         vulnerabilities.extend(sql_vulns)
         
         # XSS Scan
-        print(f"\n{Fore.BLUE}[2/4] Scanning for XSS...{Style.RESET_ALL}")
-        xss_vulns = self.xss_scanner.scan_url(url, response.text)
+        xss_vulns = self.xss_scanner.scan(url, response.text)
         vulnerabilities.extend(xss_vulns)
         
         # CSRF Detection
-        print(f"\n{Fore.BLUE}[3/4] Analyzing forms for CSRF...{Style.RESET_ALL}")
         csrf_vulns = self.csrf_detector.scan(url, response.text)
         vulnerabilities.extend(csrf_vulns)
         
         # Security Headers Scan
-        print(f"\n{Fore.BLUE}[4/4] Checking security headers...{Style.RESET_ALL}")
         headers_vulns = self.headers_scanner.scan(response.headers)
         vulnerabilities.extend(headers_vulns)
         
@@ -95,7 +92,7 @@ def main():
             vulnerabilities = scanner.scan_url(args.url)
             target_url = args.url
         elif args.input:
-            # Handle multiple URLs (simplified)
+            # Handle multiple URLs
             with open(args.input, 'r') as f:
                 urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
             
@@ -106,17 +103,27 @@ def main():
             vulnerabilities = all_vulnerabilities
             target_url = f"Multiple URLs from {args.input}"
         
+        # Generate detailed reports per scanner
+        sql_vulns = [v for v in vulnerabilities if v['type'] == 'SQL Injection']
+        xss_vulns = [v for v in vulnerabilities if 'XSS' in v['type']]
+        csrf_vulns = [v for v in vulnerabilities if 'CSRF' in v['type']]
+        header_vulns = [v for v in vulnerabilities if v['type'] in ['Security Headers', 'Cookie Security']]
+        
+        if sql_vulns:
+            print(f"\n{scanner.sql_scanner.generate_report(sql_vulns)}")
+        if xss_vulns:
+            print(f"\n{scanner.xss_scanner.generate_report(xss_vulns)}")
+        if csrf_vulns:
+            print(f"\n{scanner.csrf_detector.generate_report(csrf_vulns)}")
+        if header_vulns:
+            print(f"\n{scanner.headers_scanner.generate_report(header_vulns)}")
+        
         # Generate report if output specified
         if args.output:
             scanner.report_generator.generate_report(
                 vulnerabilities, args.output, args.format, target_url
             )
             print(f"\n{Fore.GREEN}📄 Report saved to: {args.output}{Style.RESET_ALL}")
-        
-        # Print SQL injection specific report
-        sql_vulns = [v for v in vulnerabilities if v['type'] == 'SQL Injection']
-        if sql_vulns:
-            print(f"\n{scanner.sql_scanner.generate_report(sql_vulns)}")
         
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}⏹️  Scan interrupted by user{Style.RESET_ALL}")
