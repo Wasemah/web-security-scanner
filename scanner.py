@@ -62,6 +62,17 @@ class WebSecurityScanner:
         
         print(f"\n{Fore.GREEN}✅ Scan completed. Found {len(vulnerabilities)} potential vulnerabilities{Style.RESET_ALL}")
         return vulnerabilities
+    
+    def scan_multiple_urls(self, urls):
+        """Scan multiple URLs"""
+        all_vulnerabilities = []
+        for url in urls:
+            url = url.strip()
+            if url and not url.startswith('#'):
+                vulns = self.scan_url(url)
+                all_vulnerabilities.extend(vulns)
+                print()  # Empty line between scans
+        return all_vulnerabilities
 
 def main():
     banner = f"""
@@ -86,37 +97,35 @@ def main():
         sys.exit(1)
     
     scanner = WebSecurityScanner()
+    vulnerabilities = []
+    target_url = ""
     
     try:
         if args.url:
-            vulnerabilities = scanner.scan_url(args.url)
             target_url = args.url
+            vulnerabilities = scanner.scan_url(args.url)
         elif args.input:
-            # Handle multiple URLs
             with open(args.input, 'r') as f:
                 urls = [line.strip() for line in f if line.strip() and not line.startswith('#')]
-            
-            all_vulnerabilities = []
-            for url in urls:
-                vulns = scanner.scan_url(url)
-                all_vulnerabilities.extend(vulns)
-            vulnerabilities = all_vulnerabilities
             target_url = f"Multiple URLs from {args.input}"
+            vulnerabilities = scanner.scan_multiple_urls(urls)
         
-        # Generate detailed reports per scanner
-        sql_vulns = [v for v in vulnerabilities if v['type'] == 'SQL Injection']
-        xss_vulns = [v for v in vulnerabilities if 'XSS' in v['type']]
-        csrf_vulns = [v for v in vulnerabilities if 'CSRF' in v['type']]
-        header_vulns = [v for v in vulnerabilities if v['type'] in ['Security Headers', 'Cookie Security']]
+        # Display summary
+        print(f"\n{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}📋 SCAN SUMMARY{Style.RESET_ALL}")
+        print(f"{Fore.CYAN}{'='*50}{Style.RESET_ALL}")
         
-        if sql_vulns:
-            print(f"\n{scanner.sql_scanner.generate_report(sql_vulns)}")
-        if xss_vulns:
-            print(f"\n{scanner.xss_scanner.generate_report(xss_vulns)}")
-        if csrf_vulns:
-            print(f"\n{scanner.csrf_detector.generate_report(csrf_vulns)}")
-        if header_vulns:
-            print(f"\n{scanner.headers_scanner.generate_report(header_vulns)}")
+        severity_count = {}
+        for vuln in vulnerabilities:
+            severity = vuln['severity']
+            severity_count[severity] = severity_count.get(severity, 0) + 1
+        
+        for severity in ['critical', 'high', 'medium', 'low', 'info']:
+            count = severity_count.get(severity, 0)
+            if count > 0:
+                print(f"  {severity.upper()}: {count}")
+        
+        print(f"  TOTAL: {len(vulnerabilities)}")
         
         # Generate report if output specified
         if args.output:
@@ -125,6 +134,15 @@ def main():
             )
             print(f"\n{Fore.GREEN}📄 Report saved to: {args.output}{Style.RESET_ALL}")
         
+        # Show a few vulnerabilities in console
+        if vulnerabilities:
+            print(f"\n{Fore.YELLOW}🔍 Top vulnerabilities found:{Style.RESET_ALL}")
+            for i, vuln in enumerate(vulnerabilities[:5], 1):
+                print(f"  {i}. [{vuln['severity'].upper()}] {vuln['type']}")
+        
+        if not vulnerabilities:
+            print(f"{Fore.GREEN}🎉 No vulnerabilities found!{Style.RESET_ALL}")
+            
     except KeyboardInterrupt:
         print(f"\n{Fore.YELLOW}⏹️  Scan interrupted by user{Style.RESET_ALL}")
     except Exception as e:
